@@ -1,0 +1,15 @@
+This file is used as a guide to show the software side of the precision manager. 
+It contains three parts: data preparion, execution model decision and real execution model.
+
+Now I focus on the data preparion part.... 
+
+Log: 30.07, use ICC stead of g++ to run AVX2. I do not know why g++ cannot sucessfully compile the code with AVX2 intrinsics. 
+Log: 31.07, Support Hogwild and IntelPCM. 
+Log: 31.07, Support ModelAverage. 
+Log: 24.10, hazy fold is not part of this repository any more and it is standalone. 
+
+
+Known issues:
+1, the directory of dataset is different among machines. How to fix it?
+
+2, The libPCM.2.11.a is difference among machines, since the CPU is different. 

@@ -1,0 +1,4 @@
+The current implementation is no chaining (sgd_x_wr_without_chaining.v---14.4kB)... 31.07.2018
+
+trying to use the chaining version (sgd_x_wr_with_chaining.v---14.1kB)... 31.07.2018
+
