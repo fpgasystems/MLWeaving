@@ -142,12 +142,7 @@ public:
 
 	//uint32_t copy_data_into_FPGA_memory_after_quantization(int quantizationBits, int _numberOfIndices, uint32_t address32offset);
 	//uint32_t get_number_of_CLs_needed_for_one_index(int quantizationBits);
-	void mlweaving_linreg_SGD_modelaverage(uint32_t numberOfIterations, float stepSize, int mini_batch_size, uint32_t nthreads, uint32_t num_epochs_a_decay, float decay_initial, uint32_t numBits);	
-	void char_linreg_SGD_modelaverage(uint32_t numberOfIterations, float stepSize, int mini_batch_size, uint32_t nthreads, uint32_t num_epochs_a_decay, float decay_initial, uint32_t numberOfBits);
-	void short_linreg_SGD_modelaverage(uint32_t numberOfIterations, float stepSize, int mini_batch_size, uint32_t nthreads, uint32_t num_epochs_a_decay, float decay_initial, uint32_t numberOfBits);
 
-	void float_linreg_SGD_hogwild(     uint32_t numberOfIterations, float stepSize, int mini_batch_size, uint32_t nthreads, uint32_t num_epochs_a_decay, float decay_initial);	
-	void float_linreg_SGD_modelaverage(uint32_t numberOfIterations, float stepSize, int mini_batch_size, uint32_t nthreads, uint32_t num_epochs_a_decay, float decay_initial);	
 	void float_linreg_SGD_batch(uint32_t numberOfIterations, float stepSize, int mini_batch_size);	
 	void float_linreg_SGD(uint32_t numberOfIterations, float stepSize);
 	float calculate_loss(float x[]);

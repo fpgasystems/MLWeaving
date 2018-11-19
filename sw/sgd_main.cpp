@@ -181,29 +181,6 @@ int main(int argc, char *argv[])
   {
     sgd.float_linreg_SGD_batch(numberOfIterations, stepSize, mini_batch_size); //run the CPU-version SGD...
   }
-  else if (exec_model == 3)
-  {
-    sgd.float_linreg_SGD_hogwild(numberOfIterations, stepSize, mini_batch_size, nthreads, num_epochs_a_decay, decay_initial); //run HogWIld
-  }
-  else if (exec_model == 4)
-  {
-    sgd.float_linreg_SGD_modelaverage(numberOfIterations, stepSize, mini_batch_size, nthreads, num_epochs_a_decay, decay_initial); //run ModelAvereage.
-  }
-  else if (exec_model == 41)
-  {
-    sgd.a_perform_bitweaving_cpu();
-    printf("BitWeaving a done\n"); //sleep(1);
-
-    sgd.mlweaving_linreg_SGD_modelaverage(numberOfIterations, stepSize, mini_batch_size, nthreads, num_epochs_a_decay, decay_initial, numberOfBits); //run ModelAvereage.
-  }
-  else if (exec_model == 42)
-  {
-    sgd.char_linreg_SGD_modelaverage(numberOfIterations, stepSize, mini_batch_size, nthreads, num_epochs_a_decay, decay_initial, numberOfBits); //run ModelAvereage.
-  }
-  else if (exec_model == 43)
-  {
-    sgd.short_linreg_SGD_modelaverage(numberOfIterations, stepSize, mini_batch_size, nthreads, num_epochs_a_decay, decay_initial, numberOfBits); //run ModelAvereage.
-  }
 
 
   
