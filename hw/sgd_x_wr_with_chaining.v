@@ -63,13 +63,16 @@ module sgd_x_wr #( parameter DATA_WIDTH_IN      = 4 ,
     //input   wire                                   acc_gradient_valid[`NUM_BITS_PER_BANK-1:0];
 
 reg                     x_wr_en_end_of_batch;      
-reg               [7:0] x_wr_credit_counter_pre, x_wr_credit_counter_pre2; 
+reg               [7:0] x_wr_credit_counter_pre, x_wr_credit_counter_pre2, x_wr_credit_counter_pre3, x_wr_credit_counter_pre4, x_wr_credit_counter_pre5; 
 always @(posedge clk) begin
     //if(~rst_n)
     //    x_wr_credit_counter  <= 8'b0;
     //else //if (started) 
     x_wr_credit_counter_pre2  <= x_wr_credit_counter_pre;
-    x_wr_credit_counter       <= x_wr_credit_counter_pre2;
+    x_wr_credit_counter_pre3  <= x_wr_credit_counter_pre2;
+    x_wr_credit_counter_pre4  <= x_wr_credit_counter_pre3;
+    x_wr_credit_counter_pre5  <= x_wr_credit_counter_pre4;
+    x_wr_credit_counter       <= x_wr_credit_counter_pre5;
 end
 
 //to make sure that the parameters has been assigned...
@@ -158,10 +161,11 @@ always @(posedge clk) begin
 end
 
 reg chain_model_en; //fix me. The value chooce of main_index (1) is trick.
-
+reg sample_not_last_one;
 
 always @(posedge clk) begin
-        chain_model_en  <= ( (main_index == 12'b10) & x_updated_wr_en_is_coming ) & (sample_index != numSamples);
+    sample_not_last_one  <=  sample_index != numSamples; //happen before chan_model_en is valid
+    chain_model_en       <= ( (main_index == 12'b00) & x_updated_wr_en_is_coming ) & sample_not_last_one; //12'b10: <=128 --> bug.
 end
 //()//(   )
 

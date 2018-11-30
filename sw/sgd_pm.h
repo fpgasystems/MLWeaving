@@ -116,6 +116,7 @@ public:
 
 
 	// Data loading functions
+	void load_synthesized_data(uint32_t _numSamples, uint32_t _numFeatures);
 	void load_tsv_data(     char* pathToFile, uint32_t _numSamples, uint32_t _numFeatures);
 	void load_libsvm_data(  char* pathToFile, uint32_t _numSamples, uint32_t _numFeatures);
 	void load_libsvm_data_1(char* pathToFile, uint32_t _numSamples, uint32_t _numFeatures);

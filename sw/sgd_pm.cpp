@@ -19,6 +19,9 @@ zipml_data_representation is mainly
 #ifndef ZIP_SGD_PM_CPP
 #define ZIP_SGD_PM_CPP
 
+#include <stdlib.h>     /* srand, rand */
+#include <time.h>       /* time */
+
 #include "sgd_pm.h"
 
 #define AVX2_EN
@@ -361,6 +364,59 @@ void zipml_sgd_pm::load_libsvm_data(char* pathToFile, uint32_t _numSamples, uint
 	cout << "in libsvm, numFeatures: " << dr_numFeatures << endl; 
 	cout << "in libsvm, dr_numFeatures_algin: " << dr_numFeatures_algin << endl; 
 }
+
+///////////Load the data from file with .libsvm type///////////
+void zipml_sgd_pm::load_synthesized_data(uint32_t _numSamples, uint32_t _numFeatures) {
+
+	/* initialize random seed: */
+	srand (time(NULL));
+
+	dr_numSamples        = _numSamples;
+	dr_numFeatures       = _numFeatures; // For the bias term
+	dr_numFeatures_algin = ((dr_numFeatures+63)&(~63));
+
+	dr_a  = (float*)malloc(dr_numSamples*dr_numFeatures*sizeof(float)); 
+	if (dr_a == NULL)
+	{
+		printf("Malloc dr_a failed in load_tsv_data\n");
+		return;
+	}
+	//////initialization of the a to random value...//////
+	for (int i = 0; i < dr_numSamples*dr_numFeatures; i++)
+		dr_a[i] = (float)(rand()) /(float) RAND_MAX;//0.0;
+
+	dr_b  = (float*)malloc(dr_numSamples*sizeof(float));
+	if (dr_b == NULL)
+	{
+		printf("Malloc dr_b failed in load_tsv_data\n");
+		return;
+	}
+
+	dr_bi = (int*)malloc(dr_numSamples *sizeof(int));
+	if (dr_bi == NULL)
+	{
+		printf("Malloc dr_bi failed in load_tsv_data\n");
+		return;
+	}
+	//////initialization of the b to random value...//////
+
+	for (uint64_t i = 0; i < dr_numSamples; i++)
+	{
+		float temp    = (i&1 == 1)?0.0:1.0;
+		dr_b[i]       = temp;
+		dr_bi[i]      = (int)(temp*(float)b_toIntegerScaler);
+
+	}
+
+	//for (int i = 0; i < dr_numSamples; i++) { // Bias term
+	//	dr_a[i*dr_numFeatures] = 1.0;
+	//}
+	cout << "in synthesized_data, numSamples:           " << dr_numSamples << endl;
+	cout << "in synthesized_data, numFeatures:          " << dr_numFeatures << endl;
+	cout << "in synthesized_data, dr_numFeatures_algin: " << dr_numFeatures_algin << endl; 
+
+}
+
 
 ///////////Load the data from file with .libsvm type///////////
 void zipml_sgd_pm::load_libsvm_data_1(char* pathToFile, uint32_t _numSamples, uint32_t _numFeatures) {
@@ -757,94 +813,7 @@ void zipml_sgd_pm::a_perform_bitweaving_cpu(void) {
 	}
 
 	hazy::vector::mlweaving_on_sample(a_bitweaving_cpu, dr_a_norm, dr_numSamples, dr_numFeatures); 
-/*
-	uint32_t *a_fpga_tmp		   = a_bitweaving_cpu;
-	uint32_t address_index         = 0;
-	///Do the bitWeaving to the training data...
-	for (int i = 0; i < dr_numSamples; i+=8)
-	{   
-		int j; 
-		//Deal with the main part of dr_numFeatures.
-		for (j = 0; j < (dr_numFeatures/64)*64; j += 64)
-		{
-			uint32_t tmp_buffer[512] = {0};
-			//1: initilization off tmp buffer..
-			for (int k = 0; k < 8; k++)
-				for (int m = 0; m < 64; m++)
-					tmp_buffer[ k*64+m ] = dr_a_norm[ (i + k)*dr_numFeatures + (j+m) ];
 
-			//2: focus on the data from index: j...
-			for (int k = 0; k < 32; k++)
-			{	
-				uint32_t result_buffer[16] = {0};
-				//2.1: re-order the data according to the bit-level...
-				for (int m = 0; m < 512; m++)
-				{
-					result_buffer[m>>5] = result_buffer[m>>5] | ((tmp_buffer[m] >>31)<<(m&31));
-					tmp_buffer[m]       = tmp_buffer[m] << 1;				
-				}
-			    //2.2: store the bit-level result back to the memory...
-				a_fpga_tmp[address_index++] = result_buffer[0];
-				a_fpga_tmp[address_index++] = result_buffer[1];
-				a_fpga_tmp[address_index++] = result_buffer[2];
-				a_fpga_tmp[address_index++] = result_buffer[3];
-				a_fpga_tmp[address_index++] = result_buffer[4];
-				a_fpga_tmp[address_index++] = result_buffer[5];
-				a_fpga_tmp[address_index++] = result_buffer[6];
-				a_fpga_tmp[address_index++] = result_buffer[7];
-				a_fpga_tmp[address_index++] = result_buffer[8];
-				a_fpga_tmp[address_index++] = result_buffer[9];
-				a_fpga_tmp[address_index++] = result_buffer[10];
-				a_fpga_tmp[address_index++] = result_buffer[11];
-				a_fpga_tmp[address_index++] = result_buffer[12];
-				a_fpga_tmp[address_index++] = result_buffer[13];
-				a_fpga_tmp[address_index++] = result_buffer[14];
-				a_fpga_tmp[address_index++] = result_buffer[15];
-			}
-		}
-
-		//Deal with the remainder of features, with the index from j...
-		uint32_t num_r_f = dr_numFeatures - j;
-		//handle the remainder....It is important...
-		if (num_r_f > 0)//(j < dr_numFeatures)
-		{
-			uint32_t tmp_buffer[512] = {0};
-			//1: initilization off tmp buffer..
-			for (int k = 0; k < 8; k++)
-				for (int m = 0; m < num_r_f; m++)
-					tmp_buffer[k*64+m] = dr_a_norm[(i + k)*dr_numFeatures + j + m];
-
-			//2: focus on the data from index: j...
-			for (int k = 0; k < 32; k++)
-			{	
-				uint32_t result_buffer[16] = {0};
-				//2.1: re-order the data according to the bit-level...
-				for (int m = 0; m < 512; m++)
-				{
-					result_buffer[m>>5] = result_buffer[m>>5] | ((tmp_buffer[m] >>31)<<(m&31));
-					tmp_buffer[m]       = tmp_buffer[m] << 1;				
-				}
-			    //2.2: store the bit-level result back to the memory...
-				a_fpga_tmp[address_index++] = result_buffer[0];
-				a_fpga_tmp[address_index++] = result_buffer[1];
-				a_fpga_tmp[address_index++] = result_buffer[2];
-				a_fpga_tmp[address_index++] = result_buffer[3];
-				a_fpga_tmp[address_index++] = result_buffer[4];
-				a_fpga_tmp[address_index++] = result_buffer[5];
-				a_fpga_tmp[address_index++] = result_buffer[6];
-				a_fpga_tmp[address_index++] = result_buffer[7];
-				a_fpga_tmp[address_index++] = result_buffer[8];
-				a_fpga_tmp[address_index++] = result_buffer[9];
-				a_fpga_tmp[address_index++] = result_buffer[10];
-				a_fpga_tmp[address_index++] = result_buffer[11];
-				a_fpga_tmp[address_index++] = result_buffer[12];
-				a_fpga_tmp[address_index++] = result_buffer[13];
-				a_fpga_tmp[address_index++] = result_buffer[14];
-				a_fpga_tmp[address_index++] = result_buffer[15];
-			}
-		}
-	}
-*/
 }
 
 //It performs the bitweaving operation on a_norm, which is 32-bit. 
@@ -878,94 +847,7 @@ void zipml_sgd_pm::a_perform_bitweaving_fpga(void) {
     //printf("dr_numSamples = %d, dr_numFeatures = %d, num_bytes_for_samples = %ld\n", dr_numSamples, dr_numFeatures, num_bytes_for_samples);
     //sleep(1);
 	hazy::vector::mlweaving_on_sample(a_bitweaving_fpga, dr_a_norm, dr_numSamples, dr_numFeatures); 
-/*
-	uint32_t *a_fpga_tmp		   = a_bitweaving_fpga;
-	uint32_t address_index         = 0;
-	///Do the bitWeaving to the training data...
-	for (int i = 0; i < dr_numSamples; i+=8)
-	{   
-		int j; 
-		//Deal with the main part of dr_numFeatures.
-		for (j = 0; j < (dr_numFeatures/64)*64; j += 64)
-		{
-			uint32_t tmp_buffer[512] = {0};
-			//1: initilization off tmp buffer..
-			for (int k = 0; k < 8; k++)
-				for (int m = 0; m < 64; m++)
-					tmp_buffer[ k*64+m ] = dr_a_norm[ (i + k)*dr_numFeatures + (j+m) ];
 
-			//2: focus on the data from index: j...
-			for (int k = 0; k < 32; k++)
-			{	
-				uint32_t result_buffer[16] = {0};
-				//2.1: re-order the data according to the bit-level...
-				for (int m = 0; m < 512; m++)
-				{
-					result_buffer[m>>5] = result_buffer[m>>5] | ((tmp_buffer[m] >>31)<<(m&31));
-					tmp_buffer[m]       = tmp_buffer[m] << 1;				
-				}
-			    //2.2: store the bit-level result back to the memory...
-				a_fpga_tmp[address_index++] = result_buffer[0];
-				a_fpga_tmp[address_index++] = result_buffer[1];
-				a_fpga_tmp[address_index++] = result_buffer[2];
-				a_fpga_tmp[address_index++] = result_buffer[3];
-				a_fpga_tmp[address_index++] = result_buffer[4];
-				a_fpga_tmp[address_index++] = result_buffer[5];
-				a_fpga_tmp[address_index++] = result_buffer[6];
-				a_fpga_tmp[address_index++] = result_buffer[7];
-				a_fpga_tmp[address_index++] = result_buffer[8];
-				a_fpga_tmp[address_index++] = result_buffer[9];
-				a_fpga_tmp[address_index++] = result_buffer[10];
-				a_fpga_tmp[address_index++] = result_buffer[11];
-				a_fpga_tmp[address_index++] = result_buffer[12];
-				a_fpga_tmp[address_index++] = result_buffer[13];
-				a_fpga_tmp[address_index++] = result_buffer[14];
-				a_fpga_tmp[address_index++] = result_buffer[15];
-			}
-		}
-
-		//Deal with the remainder of features, with the index from j...
-		uint32_t num_r_f = dr_numFeatures - j;
-		//handle the remainder....It is important...
-		if (num_r_f > 0)//(j < dr_numFeatures)
-		{
-			uint32_t tmp_buffer[512] = {0};
-			//1: initilization off tmp buffer..
-			for (int k = 0; k < 8; k++)
-				for (int m = 0; m < num_r_f; m++)
-					tmp_buffer[k*64+m] = dr_a_norm[(i + k)*dr_numFeatures + j + m];
-
-			//2: focus on the data from index: j...
-			for (int k = 0; k < 32; k++)
-			{	
-				uint32_t result_buffer[16] = {0};
-				//2.1: re-order the data according to the bit-level...
-				for (int m = 0; m < 512; m++)
-				{
-					result_buffer[m>>5] = result_buffer[m>>5] | ((tmp_buffer[m] >>31)<<(m&31));
-					tmp_buffer[m]       = tmp_buffer[m] << 1;				
-				}
-			    //2.2: store the bit-level result back to the memory...
-				a_fpga_tmp[address_index++] = result_buffer[0];
-				a_fpga_tmp[address_index++] = result_buffer[1];
-				a_fpga_tmp[address_index++] = result_buffer[2];
-				a_fpga_tmp[address_index++] = result_buffer[3];
-				a_fpga_tmp[address_index++] = result_buffer[4];
-				a_fpga_tmp[address_index++] = result_buffer[5];
-				a_fpga_tmp[address_index++] = result_buffer[6];
-				a_fpga_tmp[address_index++] = result_buffer[7];
-				a_fpga_tmp[address_index++] = result_buffer[8];
-				a_fpga_tmp[address_index++] = result_buffer[9];
-				a_fpga_tmp[address_index++] = result_buffer[10];
-				a_fpga_tmp[address_index++] = result_buffer[11];
-				a_fpga_tmp[address_index++] = result_buffer[12];
-				a_fpga_tmp[address_index++] = result_buffer[13];
-				a_fpga_tmp[address_index++] = result_buffer[14];
-				a_fpga_tmp[address_index++] = result_buffer[15];
-			}
-		}
-	}
-*/
 }
 
 void zipml_sgd_pm::b_normalize(char toMinus1_1, char binarize_b, int shift_bits) 
@@ -1143,7 +1025,7 @@ void zipml_sgd_pm::float_linreg_SGD_batch(uint32_t numberOfIterations, float ste
 	for (int j = 0; j < dr_numFeatures_algin; j++) 
 		x_gradient[j] = 0.0;
 	
-
+	float stepSize_in_use = stepSize/(float)mini_batch_size;
 	//////Initialized loss...///
 	float loss_value = calculate_loss(x_tmp);
 	cout << "init_loss: "<< loss_value <<endl;
@@ -1167,7 +1049,7 @@ void zipml_sgd_pm::float_linreg_SGD_batch(uint32_t numberOfIterations, float ste
 					dot += x_tmp[j]*dr_a_norm_fp[(i+k)*dr_numFeatures + j];
 
 				for (int j = 0; j < dr_numFeatures; j++) 
-					x_gradient[j] += stepSize*(dot - dr_b[i+k])*dr_a_norm_fp[(i+k)*dr_numFeatures + j];
+					x_gradient[j] += stepSize_in_use*(dot - dr_b[i+k])*dr_a_norm_fp[(i+k)*dr_numFeatures + j];
 			}
 
 			///update the model with the computed gradient..

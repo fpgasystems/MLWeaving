@@ -134,6 +134,12 @@ int main(int argc, char *argv[])
     sgd.load_libsvm_data_1((char*)"./Datasets/madelon_double_10", 20000, 500);
     //sgd.b_normalize(0,  1, 7.0);     
   }
+ else if (dataset_index == 9)
+  {
+    printf("------Training the sythesized data: (32 samples, 126 features)\n");
+    sgd.load_synthesized_data(32, 126);
+    //sgd.b_normalize(0,  1, 7.0);     
+  }
 
   //printf("test_0_0, dr_numSamples = %d, dr_numFeatures = %d\n", dr_numSamples, dr_numFeatures);
   sgd.a_normalize();        // already binarize, two classifications. 

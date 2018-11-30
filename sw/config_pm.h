@@ -14,7 +14,7 @@
 
 #include "centaur.h" ///home/zeke/centaur CENTAUR_HOME/
 
-#define SGD_AFU_BITWEAVING  0xf
+#define SGD_AFU_BITWEAVING  0x1b
 
 /*This file contains the general configuration for the precision manager*/
 
