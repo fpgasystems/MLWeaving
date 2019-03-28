@@ -1112,7 +1112,394 @@ void zipml_sgd_pm::compute_loss_and_printf(uint32_t numberOfIterations, uint32_t
 	}
 }
 
+//single thread implementation. 
+void RunHogwildPerThread(ThreadArgs &args, unsigned tid, unsigned total)
+{
+	float *a_norm_fp     = args.a_norm_fp;	
+	float *b_norm_fp     = args.b_norm_fp;
 
+	float *x_gradient    = args.x_gradient[tid];
+	float *x_global      = args.x_global;
+	uint32_t numSamples  = args.numSamples;
+	uint32_t numFeatures = args.numFeatures;
+	uint32_t batch_size  = args.batch_size;
+
+    hazy::vector::FVector<float> f_x_gradient(x_gradient, numFeatures); 
+    hazy::vector::FVector<float> f_x_global(x_global,     numFeatures); 
+
+    size_t start         = GetStartIndex(numSamples, tid, total); 
+    size_t end           = GetEndIndex(numSamples, tid, total);
+
+	float stepSize       = args.stepSize;
+	float scale          = -(stepSize/(float)batch_size); ///(float)params.batch_size;
+
+
+    ////////////main loop for each epoch////////////
+    for (size_t i = start; i < end; i+= batch_size) {
+    	//printf("i = %d\n", i);
+    	uint32_t actual_batch_size = ( (i+batch_size) > end? (end-i):batch_size ); //It is no larger than batch size.
+    	//printf("actual_batch_size = %d\n", actual_batch_size);
+
+        hazy::vector::Zero(f_x_gradient);
+
+        for (size_t j = 0; j < actual_batch_size; j++)
+        {	
+        	size_t k = i + j;
+			hazy::vector::FVector<float> f_sample(a_norm_fp + (uint64_t)(k*numFeatures), numFeatures); 
+			//printf("jj = %d\n", j);	  
+			float dot_product = hazy::vector::Dot( f_x_global, f_sample);
+			float delta;
+			delta = scale * (dot_product - b_norm_fp[k]); //
+			//printf("j = %d\n", j);	  
+				// linear regression
+			hazy::vector::ScaleAndAdd(
+				f_x_gradient,				
+				f_sample,
+				delta
+			);
+
+        }
+
+        //threadArgs.communicate_times_[tid].ptr->Start();
+		hazy::vector::ScaleAndAdd(
+		    f_x_global,
+		    f_x_gradient,
+		    1.0
+		);
+        //threadArgs.communicate_times_[tid].ptr->Pause();
+    } 
+   // for (int i = 0; i < 10; i++)
+   // 	printf("%f ", x_global[i]); 
+  }
+
+
+
+//Hogwild...
+void zipml_sgd_pm::float_linreg_SGD_hogwild(uint32_t numberOfIterations, float stepSize, int mini_batch_size, uint32_t nthreads, uint32_t num_epochs_a_decay, float decay_initial) 
+{
+	// Init 
+	ThreadArgs args; 
+    hazy::util::Clock epoch_time_;
+
+	//Global model x.
+	dr_numFeatures_algin = ((dr_numFeatures+63)&(~63));
+	//malloc the memory space for the model x. 
+    x = (float *) aligned_alloc(64, sizeof(float) * dr_numFeatures_algin ); 
+    if (x == NULL) {
+    	printf("Malloc for the model x failed\n");
+    	return;
+    }
+	for (int j = 0; j < dr_numFeatures_algin; j++)
+		x[j] = 0.0;
+
+ 	args.x_global    = this->x;
+ 	args.numSamples  = dr_numSamples;
+ 	args.numFeatures = dr_numFeatures;
+	args.batch_size  = mini_batch_size;
+	args.stepSize    = stepSize;
+
+	args.a_norm_fp   = dr_a_norm_fp;
+	args.b_norm_fp   = dr_b;
+
+
+	float loss_value = calculate_loss(x);
+	cout << "Hogwild init_loss: "<< loss_value <<endl;
+
+	//Malloc and initialize the gradient for each thread.
+	for (int i = 0; i < nthreads; i++)
+	{
+		args.x_gradient[i] = (float *) aligned_alloc(64, sizeof(float) * dr_numFeatures_algin ); 
+    	if (args.x_gradient[i] == NULL) {
+    		printf("Malloc for the gradient[%d] failed\n", i);
+    		return;
+    	}
+    	for (int j = 0; j < dr_numFeatures_algin; j++)
+    		 (args.x_gradient[i])[j] = 0.0;
+	}
+	//printf("1\n");
+	/////Initlize the threadBlock
+    hazy::thread::ThreadPool* threadPool_;
+	threadPool_ = new hazy::thread::ThreadPool(nthreads);
+	threadPool_->Init();
+
+	//printf("2\n");
+	//Do the training....
+	float total_time = 0.0;
+	for(int epoch = 0; epoch < numberOfIterations; epoch++) 
+	{
+		//printf("3\n");
+/*		if (epoch == numberOfIterations-2) 
+		{
+		  PCM_initPerformanceMonitor(&inst_Monitor_Event, NULL);
+		  PCM_start();
+		}
+*/
+		//Decay the learning rate for better convergence.... 
+		args.stepSize    = stepSize * pow( decay_initial, sqrt((float)epoch+1.0) );
+		//if ( (epoch != 0) && (epoch % num_epochs_a_decay == 0) )
+		//{
+		//	stepSize/=2.0;
+		//	args.stepSize    = stepSize;
+		//}
+
+		epoch_time_.Start();
+
+		threadPool_->Execute( args, RunHogwildPerThread );
+		threadPool_->Wait();
+
+		epoch_time_.Stop();
+
+/*
+		if (epoch == numberOfIterations-2) 
+		{
+		  PCM_stop();
+		} 
+*/
+		total_time += epoch_time_.value;
+
+		float loss_value = calculate_loss(x);
+		printf("Hogwild: %d-th loss is %f,stepsize = %f,epoch time: %.7f,total time: %.7f\n", epoch, loss_value, args.stepSize, epoch_time_.value, total_time); // epoch_time_.value shows the elapsed time for each epoch...
+	}
+
+/*
+	if (1) 
+	{
+	  printf("=====print the profiling result==========\n");
+	  PCM_printResults();   
+	  PCM_cleanup();
+	} 
+*/
+}
+
+/*
+//single thread implementation. 
+void ModelSyncPerThread(ThreadArgs &args, unsigned tid, unsigned total)
+{
+	float *a_norm_fp     = args.a_norm_fp;	
+	float *b_norm_fp     = args.b_norm_fp;
+
+	uint32_t numSamples  = args.numSamples;
+	uint32_t numFeatures = args.numFeatures;
+	uint32_t batch_size  = args.batch_size;
+
+	float *x_global      = args.x_global;
+	float *x_local       = args.x_local[tid];
+
+    hazy::vector::FVector<float> f_x_local (x_local,  numFeatures); 
+    hazy::vector::FVector<float> f_x_global(x_global, numFeatures); 
+
+    size_t start         = GetStartIndex(numSamples, tid, total); 
+    size_t end           = GetEndIndex(numSamples, tid, total);
+
+	float stepSize       = args.stepSize;
+	float scale          = -stepSize; 
+
+	//1,  Load the local model from the global model 
+	hazy::vector::CopyInto(f_x_global, f_x_local);
+
+    ////////////main loop for each epoch////////////
+    for (size_t i = start; i < end; i++) {
+    	//printf("i = %d\n", i);
+		hazy::vector::FVector<float> f_sample(a_norm_fp + (uint64_t)(i*numFeatures), numFeatures); 
+			//printf("jj = %d\n", j);	  
+		float dot_product = hazy::vector::Dot( f_x_local, f_sample);
+		float delta;
+		delta = scale * (dot_product - b_norm_fp[i]); //
+			//printf("j = %d\n", j);	  
+				// linear regression
+		hazy::vector::ScaleAndAdd(
+			f_x_local,				
+			f_sample,
+			delta
+		);
+
+        //threadArgs.communicate_times_[tid].ptr->Pause();
+    } 
+   // for (int i = 0; i < 10; i++)
+   // 	printf("%f ", x_global[i]); 
+  }
+*/
+
+//single thread implementation. 
+void ModelSyncPerThread(ThreadArgs &args, unsigned tid, unsigned total)
+{
+	float *a_norm_fp     = args.a_norm_fp;	
+	float *b_norm_fp     = args.b_norm_fp;
+
+	float *x_local       = args.x_local[tid];
+	float *x_gradient    = args.x_gradient[tid];
+	float *x_global      = args.x_global;
+	uint32_t numSamples  = args.numSamples;
+	uint32_t numFeatures = args.numFeatures;
+	uint32_t batch_size  = args.batch_size;
+
+    hazy::vector::FVector<float> f_x_local(   x_local,    numFeatures); 
+    hazy::vector::FVector<float> f_x_gradient(x_gradient, numFeatures); 
+	hazy::vector::FVector<float> f_x_global(  x_global,   numFeatures); 
+
+    size_t start         = GetStartIndex(numSamples, tid, total); 
+    size_t end           = GetEndIndex(numSamples, tid, total);
+
+	float stepSize       = args.stepSize;
+	float scale          = -(stepSize/(float)batch_size); ///(float)params.batch_size;
+
+	hazy::vector::CopyInto(f_x_global, f_x_local);
+
+    ////////////main loop for each epoch////////////
+    for (size_t i = start; i < end; i+= batch_size) {
+    	//printf("i = %d\n", i);
+    	uint32_t actual_batch_size = ( (i+batch_size) > end? (end-i):batch_size ); //It is no larger than batch size.
+    	//printf("actual_batch_size = %d\n", actual_batch_size);
+
+        hazy::vector::Zero(f_x_gradient);
+
+        for (size_t j = 0; j < actual_batch_size; j++)
+        {	
+        	size_t k = i + j;
+			hazy::vector::FVector<float> f_sample(a_norm_fp + (uint64_t)(k*numFeatures), numFeatures); 
+			float dot_product = hazy::vector::Dot(f_x_local, f_sample); //f_x_global
+			float delta       = scale * (dot_product - b_norm_fp[k]); //
+			hazy::vector::ScaleAndAdd(
+				f_x_gradient,				
+				f_sample,
+				delta
+			);
+
+        }
+
+        //threadArgs.communicate_times_[tid].ptr->Start();
+		hazy::vector::ScaleAndAdd(
+		    f_x_local,    //f_x_global,
+		    f_x_gradient,
+		    1.0
+		);
+        //threadArgs.communicate_times_[tid].ptr->Pause();
+    } 
+  }
+
+
+
+
+//ModelAverage...
+void zipml_sgd_pm::float_linreg_SGD_modelaverage(uint32_t numberOfIterations, float stepSize, int mini_batch_size, uint32_t nthreads, uint32_t num_epochs_a_decay, float decay_initial) {
+
+	// Init 
+	ThreadArgs args; 
+    hazy::util::Clock epoch_time_;
+
+	//Global model x.
+	dr_numFeatures_algin = ((dr_numFeatures+63)&(~63));
+	//malloc the memory space for the model x. 
+    x = (float *) aligned_alloc(64, sizeof(float) * dr_numFeatures_algin ); 
+    if (x == NULL) {
+    	printf("Malloc for the model x failed\n");
+    	return;
+    }
+	for (int j = 0; j < dr_numFeatures_algin; j++)
+		x[j] = 0.0;
+
+ 	args.x_global    = this->x;
+ 	args.numSamples  = dr_numSamples;
+ 	args.numFeatures = dr_numFeatures;
+	args.batch_size  = mini_batch_size;
+	args.stepSize    = stepSize;
+
+	args.a_norm_fp   = dr_a_norm_fp;
+	args.b_norm_fp   = dr_b;
+
+
+	float *x_global  = args.x_global;
+    hazy::vector::FVector<float> f_x_global(x_global, dr_numFeatures); 
+
+	hazy::vector::FVector<float> *f_x_local;
+	f_x_local        = new hazy::vector::FVector<float>[nthreads];
+
+
+	float loss_value = calculate_loss(x);
+	cout << "ModelAverage init_loss: "<< loss_value <<endl;
+
+	//Malloc and initialize the gradient for each thread.
+	for (int i = 0; i < nthreads; i++)
+	{
+		args.x_local[i] = (float *) aligned_alloc(64, sizeof(float) * dr_numFeatures_algin ); 
+    	if (args.x_local[i] == NULL) {
+    		printf("Malloc for local[%d] failed\n", i);
+    		return;
+    	}
+    	hazy::vector::FVector<float> f_local_tmp(args.x_local[i], dr_numFeatures);
+    	f_x_local[i] = f_local_tmp;
+    	for (int j = 0; j < dr_numFeatures_algin; j++)
+    		 (args.x_local[i])[j] = 0.0;
+
+
+		args.x_gradient[i] = (float *) aligned_alloc(64, sizeof(float) * dr_numFeatures_algin ); 
+    	if (args.x_gradient[i] == NULL) {
+    		printf("Malloc for gradient[%d] failed\n", i);
+    		return;
+    	}
+    	for (int j = 0; j < dr_numFeatures_algin; j++)
+    		 (args.x_gradient[i])[j] = 0.0;    		
+	}
+
+
+	//printf("1\n");
+	/////Initlize the threadBlock
+    hazy::thread::ThreadPool* threadPool_;
+	threadPool_ = new hazy::thread::ThreadPool(nthreads);
+	threadPool_->Init();
+
+	//printf("2\n");
+	//Do the training....
+	float total_time = 0.0;
+	for(int epoch = 0; epoch < numberOfIterations; epoch++) 
+	{
+		//printf("3\n");
+/*		if (epoch == numberOfIterations-2) 
+		{
+		  PCM_initPerformanceMonitor(&inst_Monitor_Event, NULL);
+		  PCM_start();
+		}
+*/
+
+		//Decay the learning rate for better convergence.... 
+		args.stepSize    = stepSize * pow( decay_initial, sqrt((float)epoch+1.0) );
+		//if ( (epoch != 0) && (epoch % num_epochs_a_decay == 0) )
+		//{
+		//	stepSize/=2.0;
+		//	args.stepSize    = stepSize;
+		//}
+
+		epoch_time_.Start();
+
+		//1, each thread works on its local model, its performance is great due to no cache coherence protocol overhead.
+		threadPool_->Execute( args, ModelSyncPerThread );
+		threadPool_->Wait();
+		//2, After the computing thread finishes the computation of local models, the main thread will aggregate the local models from the local threads. 
+		hazy::vector::avg_list(f_x_global, f_x_local, nthreads);
+
+		epoch_time_.Stop();
+
+/*
+		if (epoch == numberOfIterations-2) 
+		{
+		  PCM_stop();
+		} 
+*/
+		total_time += epoch_time_.value;
+
+		float loss_value = calculate_loss(x);
+		printf("ModelAverage: %d-th loss is %f, stepsize = %f,  epoch time: %.7f, total time: %.7f\n", epoch, loss_value, args.stepSize, epoch_time_.value, total_time); // epoch_time_.value shows the elapsed time for each epoch...
+	}
+/*
+
+	if (1) 
+	{
+	  printf("=====print the profiling result==========\n");
+	  PCM_printResults();   
+	  PCM_cleanup();
+	} 
+*/
+}
 
 
 
